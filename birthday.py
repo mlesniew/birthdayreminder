@@ -9,7 +9,6 @@ Usage:
 
 Options:
     -f FILE --file=FILE     specify birthday file [default: ~/.birthday]
-    -l LIMIT --limit=LIMIT  limit the number of notifications [default: 0]
 '''
 
 import datetime
@@ -25,62 +24,84 @@ DATE_MD = re.compile('([0-9]{1,2})-([0-9]{1,2})')
 
 TODAY = datetime.date.today()
 
-Event = collections.namedtuple('Event', 'days desc when')
+
+class Event:
+    today = datetime.date.today()
+
+    def __init__(self, description, datespec):
+        self.description = description
+
+        match_ymd = DATE_YMD.match(datespec)
+        match_md = DATE_MD.match(datespec)
+
+        if match_ymd:
+            self.year = int(match_ymd.group(1))
+            self.month = int(match_ymd.group(2))
+            self.day = int(match_ymd.group(3))
+        elif match_md:
+            self.year = None
+            self.month = int(match_md.group(1))
+            self.day = int(match_md.group(2))
+        else:
+            raise ValueError(f'Malformed date: "{date}"')
+
+    @property
+    def date(self):
+        return datetime.date(self.year or datetime.date.min.year, self.month, self.day)
+
+    @property
+    def next_date(self):
+        ret = self.date.replace(year=self.today.year)
+        if ret < self.today:
+            ret = ret.replace(year=ret.year + 1)
+        return ret
+
+    @property
+    def days_remaining(self):
+        return (self.next_date - self.today).days
+
+    def get_description_with_years(self, year=None):
+        if self.year:
+            return f'{self.description} ({year - self.year})'
+        else:
+            return self.description
+
+    @property
+    def reminder_text(self):
+        ret = self.get_description_with_years(self.next_date.year)
+        days = self.days_remaining
+        if days == 0:
+            ret += 'today'
+        elif days == 1:
+            ret += 'tomorrow'
+        else:
+            ret += f' in {int(days)} days'
+            if days >= 3:
+                ret += f' ({self.next_date})'
+        return ret
 
 
-def parse(fileobj, reference_date):
+def parse(path):
     errors = 0
-    for lineno, line in enumerate(fileobj, 1):
-        # remove comments
-        if '#' in line:
-            line = line[:line.find('#')]
+    with open(path, encoding='utf-8') as f:
+        for lineno, line in enumerate(f, 1):
+            # remove comments
+            if '#' in line:
+                line = line[:line.find('#')]
 
-        # trim whitespace
-        line = line.strip()
+            # trim whitespace
+            line = line.strip()
 
-        # skip all empty lines
-        if not line:
-            continue
+            # skip all empty lines
+            if not line:
+                continue
 
-        # parse line
-        try:
-            date, description = line.split(None, 1)
-
-            match_ymd = DATE_YMD.match(date)
-            match_md = DATE_MD.match(date)
-            if match_ymd:
-                year = int(match_ymd.group(1))
-                month = int(match_ymd.group(2))
-                day = int(match_ymd.group(3))
-            elif match_md:
-                year = -1
-                month = int(match_md.group(1))
-                day = int(match_md.group(2))
-            else:
-                raise ValueError(f'Malformed date: "{date}"')
-
-            when = datetime.date(reference_date.year, month, day)
-
-            if when < reference_date:
-                when = datetime.date(reference_date.year + 1, month, day)
-
-            days = (when - reference_date).days
-
-            if year > 0:
-                yrs = when.year - year
-                dsc = f'{description} ({yrs})'
-            else:
-                dsc = description
-
-            yield Event(days, dsc, when)
-
-        except ValueError as e:
-            errors += 1
-            print(f'{lineno}: {e}')
-            continue
-
-    if errors:
-        raise SystemExit('Error parsing input file.')
+            # parse line
+            try:
+                date, description = line.split(None, 1)
+                yield Event(description, date)
+            except ValueError as e:
+                print(f'{path}:{lineno}: {e}')
 
 
 def main():
@@ -88,63 +109,33 @@ def main():
 
     filename = os.path.expanduser(args['--file'])
 
+    events = list(parse(filename))
+
     if args['summary']:
         if args['<year>'] and args['<month>']:
-            year = int(args['<year>'])
-            month = int(args['<month>'])
-            when = datetime.date(year, month, 1)
+            when = datetime.date(int(args['<year>']), int(args['<month>']), 1)
         else:
-            when = TODAY.replace(day=1)
-            year = when.year
-            month = when.month
+            when = datetime.date.today()
 
-        with open(filename, encoding='utf-8') as f:
-            events = [
-                event for event in parse(f, when)
-                if event.when.month == month and event.when.year == year]
-            events.sort(key=lambda e: e.when)
+        events = [event for event in events
+                  if event.month == when.month and (not event.year or event.year <= when.year)]
 
-        def iter_lines():
-            if events:
-                for e in events:
-                    yield f'{e.when}: {e.desc}'
-            else:
-                yield f'No events in {year}-{month:02}'
+        events.sort(key=lambda e: e.day)
 
-        for line in iter_lines():
-            print(line)
+        if events:
+            for e in events:
+                print(f'{when.year:04}-{when.month:02}-{e.day:02}: {e.get_description_with_years(when.year)}')
+        else:
+            print(f'No events in {when.year:04}-{when.month:02}')
 
     else:
         advance_days = [int(a) for a in args['<days>']]
+        events = [event for event in events
+                  if not advance_days or events.days_remaining in advance_days]
+        events.sort(key=lambda e: e.days_remaining)
 
-        with open(filename, encoding='utf-8') as f:
-            events = [
-                event for event in parse(f, TODAY)
-                if not advance_days or event.days in advance_days]
-        events.sort(key=lambda e: e.days)
-
-        limit = int(args['--limit'])
-        if limit > 0:
-            events = events[:limit]
-
-        if not events:
-            # no events
-            return
-
-        def describe(days, desc, when):
-            if days == 0:
-                t = 'today'
-            elif days == 1:
-                t = 'tomorrow'
-            else:
-                t = f'in {int(days)} days'
-                if days >= 3:
-                    t += f' ({when})'
-
-            return f'{desc} {t}'
-
-        for days, desc, when in events:
-            print(describe(days, desc, when))
+        for event in events:
+            print(event.reminder_text)
 
 
 if __name__ == '__main__':
