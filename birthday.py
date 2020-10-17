@@ -94,6 +94,18 @@ def parse(fileobj):
         raise ValueError(f'{errors} errors in {fileobj.name}')
 
 
+class DayRange:
+    def __init__(self, spec):
+        elements = spec.split('-')
+        if len(elements) > 2:
+            raise ValueError('invalid range')
+        self.a = int(elements[0])
+        self.b = int(elements[-1])
+
+    def __contains__(self, value):
+        return self.a <= value <= self.b
+
+
 def main():
     parser = argparse.ArgumentParser(description='Notify about birthdays and anniversaries.')
     parser.add_argument('--file', '-f',
@@ -104,16 +116,15 @@ def main():
                         help='send notifications using Wirepusher to device with the given ID')
     parser.add_argument('days',
                         nargs='*',
-                        type=int,
+                        type=DayRange,
                         help='number of days remaining to generate notification')
 
     args = parser.parse_args()
 
     events = list(parse(args.file))
 
-    advance_days = [int(a) for a in args.days]
     events = [event for event in events
-              if not advance_days or event.days_remaining in advance_days]
+              if not args.days or any(event.days_remaining in range_ for range_ in args.days)]
     events.sort(key=lambda e: e.days_remaining)
 
     for event in events:
