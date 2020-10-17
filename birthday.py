@@ -5,18 +5,20 @@ Notify about birthdays and anniversaries.
 
 Usage:
     bdnotify.py [options] list [--] [<days>...]
+    bdnotify.py [options] notify [--] [<days>...]
 
 Options:
-    -f FILE --file=FILE     specify birthday file [default: ~/.birthday]
+    -f FILE --file=FILE      specify birthday file [default: ~/.birthday]
+    -w ID --wirepusher=ID    send notifications using Wirepusher to device with the given ID
 '''
 
 import datetime
-import json
+import hashlib
 import os.path
 import re
-import collections
 
 import docopt
+import requests
 
 DATE_YMD = re.compile('([0-9]{1,4})-([0-9]{1,2})-([0-9]{1,2})')
 DATE_MD = re.compile('([0-9]{1,2})-([0-9]{1,2})')
@@ -45,6 +47,12 @@ class Event:
     @property
     def date(self):
         return datetime.date(self.year or datetime.date.min.year, self.month, self.day)
+
+    @property
+    def message_id(self):
+        desc = f'{self.date} {self.description}'
+        hsum = hashlib.sha256(desc.encode('utf-8')).hexdigest()
+        return int(hsum, 16) % 0x7fffffff
 
     @property
     def next_date(self):
@@ -104,6 +112,7 @@ def main():
     args = docopt.docopt(__doc__)
 
     filename = os.path.expanduser(args['--file'])
+    wirepusher = args['--wirepusher']
 
     events = list(parse(filename))
 
@@ -114,6 +123,15 @@ def main():
 
     for event in events:
         print(event.reminder_text)
+        if wirepusher:
+            requests.post('https://wirepusher.com/send',
+                          params={
+                              'id': wirepusher,
+                              'type': 'birthday-reminder',
+                              'title': event.description,
+                              'message': event.reminder_text,
+                              'message_id': event.message_id,
+                              })
 
 
 if __name__ == '__main__':
