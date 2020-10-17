@@ -29,7 +29,7 @@ class Event:
             self.month = int(match_md.group(1))
             self.day = int(match_md.group(2))
         else:
-            raise ValueError(f'Malformed date: "{date}"')
+            raise ValueError(f'Malformed date: "{datespec}"')
 
     @property
     def date(self):
