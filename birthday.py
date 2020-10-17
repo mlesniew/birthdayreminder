@@ -95,6 +95,9 @@ def parse(path):
                 yield Event(description, date)
             except ValueError as e:
                 print(f'{path}:{lineno}: {e}')
+                errors += 1
+    if errors:
+        raise ValueError(f'{errors} errors in {path}')
 
 
 def main():
