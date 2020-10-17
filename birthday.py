@@ -1,23 +1,10 @@
 #!/usr/bin/env python3
-# -- coding: utf-8 --
-'''
-Notify about birthdays and anniversaries.
-
-Usage:
-    bdnotify.py [options] list [--] [<days>...]
-    bdnotify.py [options] notify [--] [<days>...]
-
-Options:
-    -f FILE --file=FILE      specify birthday file [default: ~/.birthday]
-    -w ID --wirepusher=ID    send notifications using Wirepusher to device with the given ID
-'''
-
+import argparse
 import datetime
 import hashlib
 import os.path
 import re
 
-import docopt
 import requests
 
 DATE_YMD = re.compile('([0-9]{1,4})-([0-9]{1,2})-([0-9]{1,2})')
@@ -82,51 +69,59 @@ class Event:
         return ret
 
 
-def parse(path):
+def parse(fileobj):
     errors = 0
-    with open(path, encoding='utf-8') as f:
-        for lineno, line in enumerate(f, 1):
-            # remove comments
-            if '#' in line:
-                line = line[:line.find('#')]
+    for lineno, line in enumerate(fileobj, 1):
+        # remove comments
+        if '#' in line:
+            line = line[:line.find('#')]
 
-            # trim whitespace
-            line = line.strip()
+        # trim whitespace
+        line = line.strip()
 
-            # skip all empty lines
-            if not line:
-                continue
+        # skip all empty lines
+        if not line:
+            continue
 
-            # parse line
-            try:
-                date, description = line.split(None, 1)
-                yield Event(description, date)
-            except ValueError as e:
-                print(f'{path}:{lineno}: {e}')
-                errors += 1
+        # parse line
+        try:
+            date, description = line.split(None, 1)
+            yield Event(description, date)
+        except ValueError as e:
+            print(f'{fileobj.name}:{lineno}: {e}')
+            errors += 1
     if errors:
-        raise ValueError(f'{errors} errors in {path}')
+        raise ValueError(f'{errors} errors in {fileobj.name}')
 
 
 def main():
-    args = docopt.docopt(__doc__)
+    parser = argparse.ArgumentParser(description='Notify about birthdays and anniversaries.')
+    parser.add_argument('--file', '-f',
+                        default=os.path.expanduser('~/.birthday'),
+                        type=argparse.FileType('r', encoding='utf-8'),
+                        help='birthday file path')
+    parser.add_argument('--wirepusher', '-w',
+                        help='send notifications using Wirepusher to device with the given ID')
+    parser.add_argument('days',
+                        nargs='*',
+                        type=int,
+                        help='number of days remaining to generate notification')
 
-    filename = os.path.expanduser(args['--file'])
-    wirepusher = args['--wirepusher']
+    args = parser.parse_args()
 
-    events = list(parse(filename))
+    events = list(parse(args.file))
 
-    advance_days = [int(a) for a in args['<days>']]
+    advance_days = [int(a) for a in args.days]
     events = [event for event in events
               if not advance_days or event.days_remaining in advance_days]
     events.sort(key=lambda e: e.days_remaining)
 
     for event in events:
         print(event.reminder_text)
-        if wirepusher:
+        if args.wirepusher:
             requests.post('https://wirepusher.com/send',
                           params={
-                              'id': wirepusher,
+                              'id': args.wirepusher,
                               'type': 'birthday-reminder',
                               'title': event.description,
                               'message': event.reminder_text,
