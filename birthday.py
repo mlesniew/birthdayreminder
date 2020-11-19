@@ -59,9 +59,9 @@ class Event:
             ret += f' ({self.today.year - self.year})'
         days = self.days_remaining
         if days == 0:
-            ret += 'today'
+            ret += ' today'
         elif days == 1:
-            ret += 'tomorrow'
+            ret += ' tomorrow'
         else:
             ret += f' in {int(days)} days'
             if days >= 3:
