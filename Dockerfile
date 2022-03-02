@@ -1,5 +1,7 @@
 FROM python:3-slim
 
+LABEL org.opencontainers.image.source=https://github.com/mlesniew/birthdayreminder
+
 WORKDIR /app
 
 COPY requirements.txt ./
